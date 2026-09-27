@@ -136,20 +136,39 @@ is silently dropped. Please report such rows.
 
 ## Tests and sample data
 
-* `tests/importers/morganstanley/statement_text.py` holds a synthetic,
-  anonymised tax year (four quarters that reconcile exactly). The parser and
-  importer unit tests use it directly.
-* `tests/samples/import/morganstanley/synthetic_2025/` contains the same
-  quarters rendered as PDFs, plus a decoy 1042-S that must be skipped.
-  Regenerate them after changing the synthetic data with
-  `uv run python -m tests.importers.morganstanley.make_sample_pdfs`.
+* `tests/importers/morganstanley/statement_text.py` holds a small synthetic
+  tax year as extracted page text (four quarters that reconcile exactly). The
+  parser and importer unit tests use it directly.
+* `tests/samples/import/morganstanley/anonymized_2025/` contains four real
+  2025 quarterly statements, anonymised in place: the original layout, fonts
+  and encodings are kept, while the identity is fake and all quantities and
+  amounts are re-randomised and recomputed (see below).
 * `tests/test_integration_morganstanley_2025.py` runs the full CLI pipeline on
   those PDFs against the mini Kursliste (which includes Alphabet Class C with
-  its real 2025 dividends) and checks XSD validity and dividend reconciliation.
+  its real 2025 dividends) and checks XSD validity, dividend reconciliation,
+  skipping of unrelated PDFs and appending of the originals.
 * To test with your own statements without committing them, put one tax year
   per directory under `private/samples/import/morganstanley/<year>/` (or
   `$EXTRA_SAMPLE_DIR/import/morganstanley/<year>/`); the sample test picks them
   up automatically.
+
+### Contributing anonymised statements
+
+`scripts/anonymize_morganstanley_statements.py` turns a year of real quarterly
+statements into shareable samples:
+
+```console
+uv run --with pikepdf python scripts/anonymize_morganstanley_statements.py OUT_DIR q1.pdf q2.pdf q3.pdf q4.pdf
+```
+
+It replaces name, address, mailing code, account number and grant IDs, draws
+new random share quantities per grant (so no single scale factor can be
+reversed), gives each vest date a new random payroll-tax rate, and recomputes
+every derived amount so the statements still reconcile and the dividends still
+match the Kursliste. Dates and prices (public market data) are kept. The random
+values are never stored. At the end it searches the output for every original
+identifier and changed number and fails if any is found. Still review the
+result yourself: the timeline (vest dates, when shares were sold) is preserved.
 
 ---
 Return to [User Guide](user_guide.md)

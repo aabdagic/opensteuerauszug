@@ -1,2 +1,2 @@
-# Generated plain-text PDFs: never convert line endings (it would corrupt them).
+# Sample PDFs must never have their line endings converted (it would corrupt them).
 *.pdf binary
