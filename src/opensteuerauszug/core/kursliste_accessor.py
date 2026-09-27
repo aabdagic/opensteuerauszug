@@ -148,6 +148,31 @@ class KurslisteAccessor:
         return None
 
     @lru_cache(maxsize=None)
+    def get_token_by_symbol(self, symbol: str) -> Optional[Security]:
+        """
+        Finds a crypto token (``CURRNOTE.TOKEN``) by its ticker, which the Kursliste
+        stores in ``securityAppendix`` (tokens have no ISIN).  Returns None if no
+        token or more than one token uses the ticker, so an ambiguous match is
+        never guessed.  Result is cached.
+        """
+        token_type = SecurityTypeESTV.CURRNOTE_TOKEN
+        if isinstance(self.data_source, KurslisteDBReader):
+            tokens = self.data_source.find_securities_by_type(token_type.value, self.tax_year)
+        elif isinstance(self.data_source, list):
+            tokens = [
+                note
+                for kl_instance in self.data_source
+                if kl_instance.year == self.tax_year
+                for note in kl_instance.currencyNotes
+                if note.securityType == token_type
+            ]
+        else:
+            return None
+        wanted = symbol.strip().upper()
+        matches = [t for t in tokens if (t.securityAppendix or "").strip().upper() == wanted]
+        return matches[0] if len(matches) == 1 else None
+
+    @lru_cache(maxsize=None)
     def get_securities_by_valor(self, valor_number: int) -> List[Security]:
         """
         Finds all securities by VALOR number for the accessor's tax_year.

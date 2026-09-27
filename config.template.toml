@@ -32,6 +32,10 @@ full_name = "Test User - Secondary Schwab" # Example of overriding a general set
 # [brokers.schwab.accounts.default_schwab_account.processing_flags]
 # detect_foreign_income = false # Override for this specific account
 
+# Coinbase (experimental; see docs/importer_coinbase.md)
+# [brokers.coinbase.accounts.main]
+# account_number = "COINBASE" # Coinbase has no account number; used as identifier
+
 # Example of another broker (not used by current Schwab importer logic but shows structure)
 # [brokers.another_bank]
 # language = "fr"

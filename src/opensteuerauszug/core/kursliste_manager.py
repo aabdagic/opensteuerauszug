@@ -12,7 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from opensteuerauszug.model.kursliste import Kursliste, Payment
+from opensteuerauszug.model.kursliste import Kursliste, Payment, Security
 from .kursliste_db_reader import KurslisteDBReader
 from .kursliste_accessor import KurslisteAccessor
 
@@ -281,7 +281,17 @@ class KurslisteManager:
 
         if not security_model:
             return None
+        return self.price_of(security_model, price_date)
 
+    @staticmethod
+    def price_of(
+        security_model: Security, price_date: Optional[datetime.date] = None
+    ) -> Optional[Decimal]:
+        """Tax value per unit of an already looked-up Kursliste security.
+
+        Unlike :meth:`get_security_price` this works for securities without an
+        ISIN (e.g. crypto tokens, which are identified by valor number only).
+        """
         # Price extraction logic from the Pydantic Security model instance
         # This logic is similar to what was previously in the XML path
 

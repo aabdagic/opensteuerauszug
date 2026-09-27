@@ -387,6 +387,15 @@
   <da1Rate id="158" country="VN" securityGroup="SHARE" value="5" release="0" nonRecoverable="5"/>
   <da1Rate id="137" country="ZA" securityGroup="BOND" value="15" release="10" nonRecoverable="5"/>
   <da1Rate id="136" country="ZA" securityGroup="SHARE" value="20" release="5" nonRecoverable="15"/>
+  <currencyNote id="462681" valorNumber="39714275" securityGroup="CURRNOTE" securityType="CURRNOTE.TOKEN" securityName="Bitcoin" securityAppendix="BTC" country="XV" currency="XXX" denomination="1">
+    <yearend id="20156281" quotationType="PIECE" taxValueCHF="69571.988489"/>
+  </currencyNote>
+  <currencyNote id="1177373" valorNumber="121082241" securityGroup="CURRNOTE" securityType="CURRNOTE.TOKEN" securityName="USD Coin" securityAppendix="USDC" country="XV" currency="XXX" denomination="1">
+    <yearend id="20156291" quotationType="PIECE" taxValueCHF="0.791977"/>
+  </currencyNote>
+  <currencyNote id="1177374" valorNumber="121082299" securityGroup="CURRNOTE" securityType="CURRNOTE.TOKEN" securityName="Tether" securityAppendix="USDT" country="XV" currency="XXX" denomination="1">
+    <yearend id="20156292" quotationType="PIECE" taxValueCHF="0.791468"/>
+  </currencyNote>
   <fund id="468077" valorNumber="4354003" isin="US9220427424" securityGroup="FUND" securityType="FUND.DISTRIBUTION" securityName="Vanguard Total World Stock ETF" institutionId="54526" institutionName="Vanguard Total World Stock ETF" country="US" currency="USD" nominalValue="0">
     <yearend id="20174547" quotationType="PIECE" taxValueCHF="111.754785"/>
     <payment id="6912295" paymentDate="2025-03-25" currency="USD" paymentValue="0.3852" exchangeRate="0.88205" paymentValueCHF="0.33976" sign="(Q)" paymentIdSIX="589098342" exDate="2025-03-21"/>

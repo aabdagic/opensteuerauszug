@@ -158,6 +158,14 @@ class PaymentReconciliationCalculator:
             security.country in self._COUNTRIES_WHERE_OVERWITHHOLDING_SUGGESTS_CALCULATION_ISSUE
         )
 
+        # Crypto tokens have no Kursliste income entries; their taxable income is
+        # taken over from the broker by the tax value calculator (kursliste=False).
+        income_taken_from_broker: Dict[date, Decimal] = defaultdict(Decimal)
+        if security.securityCategory == "CURRNOTE":
+            for p in security.payment:
+                if not p.kursliste and p.grossRevenueB is not None and p.amount is not None:
+                    income_taken_from_broker[p.paymentDate] += p.amount
+
         broker_by_date: Dict[date, _BrokerAgg] = defaultdict(_BrokerAgg)
         kurs_by_date: Dict[date, _KurslisteAgg] = defaultdict(_KurslisteAgg)
 
@@ -261,7 +269,15 @@ class PaymentReconciliationCalculator:
                     status = "expected"
                     note += " Short stock dividend set to 0."
             elif not has_kurs and has_broker:
-                note = "Broker payment has no Kursliste entry."
+                if d in income_taken_from_broker and income_taken_from_broker[d] == broker.dividend:
+                    status = "match"
+                    matched = True
+                    note = (
+                        "Income taken from the broker: the Kursliste lists no income for "
+                        "crypto tokens."
+                    )
+                else:
+                    note = "Broker payment has no Kursliste entry."
             elif has_kurs and not has_broker:
                 if abs(kurs.dividend_chf) < Decimal("0.01") and abs(kurs.withholding_chf) < Decimal(
                     "0.01"

@@ -12,6 +12,7 @@ from .config.models import (
     IbkrAccountSettings,
     FidelityAccountSettings,
     DegiroAccountSettings,
+    CoinbaseAccountSettings,
 )
 from .render.translations import DEFAULT_LANGUAGE
 from .core.identifier_loader import SecurityIdentifierMapLoader
@@ -67,6 +68,7 @@ class ImporterType(str, Enum):
     IBKR = "ibkr"
     FIDELITY = "fidelity"
     DEGIRO = "degiro"
+    COINBASE = "coinbase"
     NONE = "none"
 
 
@@ -312,6 +314,7 @@ def process(
     all_schwab_account_settings_models: List[SchwabAccountSettings] = []
     all_ibkr_account_settings_models: List[IbkrAccountSettings] = []
     all_degiro_account_settings_models: List[DegiroAccountSettings] = []
+    all_coinbase_account_settings_models: List[CoinbaseAccountSettings] = []
     effective_config_file = resolve_config_file(config_file)
     config_manager = ConfigManager(config_file_path=str(effective_config_file))
 
@@ -355,6 +358,8 @@ def process(
         target_broker_kind_for_config_loading = "ibkr"
     elif importer_type == ImporterType.DEGIRO:
         target_broker_kind_for_config_loading = "degiro"
+    elif importer_type == ImporterType.COINBASE:
+        target_broker_kind_for_config_loading = "coinbase"
     elif broker_name:
         target_broker_kind_for_config_loading = broker_name.lower()
         print(
@@ -394,6 +399,10 @@ def process(
                 elif acc_settings.kind == "degiro":
                     all_degiro_account_settings_models.append(
                         cast(DegiroAccountSettings, acc_settings.settings)
+                    )
+                elif acc_settings.kind == "coinbase":
+                    all_coinbase_account_settings_models.append(
+                        cast(CoinbaseAccountSettings, acc_settings.settings)
                     )
                 else:
                     print(
@@ -645,6 +654,26 @@ def process(
                 )
                 statement = degiro_importer.import_dir(str(input_file))
                 print("Degiro import complete.")
+
+            elif importer_type == ImporterType.COINBASE:
+                if not parsed_period_from or not parsed_period_to:
+                    raise typer.BadParameter(
+                        "--period-from and --period-to are required for the Coinbase importer."
+                    )
+                if not input_file.is_dir():
+                    raise typer.BadParameter(
+                        f"Input for Coinbase importer must be a directory with the yearly statement, but got: {input_file}"
+                    )
+                from .importers.coinbase.coinbase_importer import CoinbaseImporter
+
+                coinbase_importer = CoinbaseImporter(
+                    period_from=parsed_period_from,
+                    period_to=parsed_period_to,
+                    account_settings_list=all_coinbase_account_settings_models,
+                    strict_consistency=strict_consistency_flag,
+                )
+                statement = coinbase_importer.import_dir(str(input_file))
+                print("Coinbase import complete.")
 
             elif importer_type == ImporterType.NONE and not raw_import:
                 print(

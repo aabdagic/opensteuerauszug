@@ -623,8 +623,13 @@ class CleanupCalculator:
                         # After enrichment attempt, warn about symbols that still
                         # lack an ISIN and valor number.  This typically means the
                         # symbol could not be mapped via the identifiers CSV.
-                        if security.symbol and (
-                            not security.isin
+                        # Crypto tokens (CURRNOTE) are exempt: they have no ISIN and
+                        # are looked up by ticker in the Kursliste, which warns if
+                        # a token is missing there.
+                        if (
+                            security.symbol
+                            and security.securityCategory != "CURRNOTE"
+                            and not security.isin
                             and (not security.valorNumber or security.valorNumber == 0)
                         ):
                             warning_msg = (

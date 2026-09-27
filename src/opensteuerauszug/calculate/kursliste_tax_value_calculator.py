@@ -14,7 +14,7 @@ from opensteuerauszug.model.ech0196 import (
     SecurityStock,
     PaymentTypeOriginal,
 )
-from opensteuerauszug.model.kursliste import PaymentTypeESTV, SecurityGroupESTV
+from opensteuerauszug.model.kursliste import PaymentTypeESTV, SecurityGroupESTV, SecurityTypeESTV
 from opensteuerauszug.model.critical_warning import CriticalWarning, CriticalWarningCategory
 from opensteuerauszug.core.position_reconciler import PositionReconciler
 from opensteuerauszug.core.constants import WITHHOLDING_TAX_RATE
@@ -203,6 +203,9 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
             kl_sec = accessor.get_security_by_valor(int(security.valorNumber))
         if not kl_sec and security.isin:
             kl_sec = accessor.get_security_by_isin(security.isin)
+        if not kl_sec and security.securityCategory == "CURRNOTE" and security.symbol:
+            # Crypto tokens have no ISIN; the Kursliste lists their ticker.
+            kl_sec = accessor.get_token_by_symbol(security.symbol)
 
         if kl_sec:
             logger.debug(
@@ -256,10 +259,10 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
         if self._current_kursliste_security and self.kursliste_manager:
             ref_date = sec_tax_value.referenceDate
             if ref_date:
-                price = self.kursliste_manager.get_security_price(
-                    ref_date.year,
-                    self._current_kursliste_security.isin or "",
-                    price_date=ref_date,
+                # Use the entry already found by valor, ISIN or token ticker; a
+                # second lookup by ISIN would fail for tokens, which have none.
+                price = KurslisteManager.price_of(
+                    self._current_kursliste_security, price_date=ref_date
                 )
                 if price is not None:
                     self._set_field_value(sec_tax_value, "unitPrice", price, path_prefix)
@@ -546,6 +549,46 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
                 valor_number_new,
             )
 
+    def _token_income_payments(self, security: Security, path_prefix: str) -> List[SecurityPayment]:
+        """Taxable income of a crypto token, valued in CHF at the payment date.
+
+        Each broker payment (e.g. a reward credited in the token) becomes
+        income without Swiss withholding tax (``grossRevenueB``), converted with
+        the Kursliste exchange rate of the payment date.
+        """
+        result: List[SecurityPayment] = []
+        for broker in security.broker_payments or []:
+            if broker.amount is None or broker.amount == 0:
+                continue
+            if broker.withHoldingTaxClaim or broker.nonRecoverableTaxAmountOriginal:
+                raise NotImplementedError(
+                    f"Withholding tax on income of token {security.securityName} "
+                    f"({broker.paymentDate}) is not supported. Please report this case."
+                )
+            chf_amount, rate = self._convert_to_chf(
+                broker.amount,
+                broker.amountCurrency,
+                f"{path_prefix}.payment.exchangeRate",
+                broker.paymentDate,
+            )
+            result.append(
+                SecurityPayment(
+                    paymentDate=broker.paymentDate,
+                    name=broker.name,
+                    quotationType=security.quotationType,
+                    quantity=broker.quantity,
+                    amountCurrency=broker.amountCurrency,
+                    amount=broker.amount,
+                    exchangeRate=rate,
+                    grossRevenueA=Decimal("0"),
+                    grossRevenueB=chf_amount,
+                    withHoldingTaxClaim=Decimal("0"),
+                    kursliste=False,
+                    broker_label_original=broker.broker_label_original,
+                )
+            )
+        return result
+
     def computePayments(self, security: Security, path_prefix: str) -> None:
         """Compute payments for a security using the Kursliste."""
         if not self.kursliste_manager:
@@ -554,6 +597,14 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
         kl_sec = self._current_kursliste_security
         if kl_sec is None:
             super().computePayments(security, path_prefix)
+            return
+
+        if kl_sec.securityType == SecurityTypeESTV.CURRNOTE_TOKEN:
+            # The Kursliste never lists income for crypto tokens (staking or
+            # lending rewards), so it has to come from the broker's records.
+            self.setKurslistePayments(
+                security, self._token_income_payments(security, path_prefix), path_prefix
+            )
             return
 
         payments = [p for p in kl_sec.payment if not p.deleted]

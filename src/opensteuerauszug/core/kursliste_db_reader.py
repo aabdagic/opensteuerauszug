@@ -235,6 +235,23 @@ class KurslisteDBReader:
                 securities.append(sec)
         return securities
 
+    def find_securities_by_type(self, security_type: str, tax_year: int) -> List[Security]:
+        """Finds all securities of one ESTV security type (e.g. ``CURRNOTE.TOKEN``)."""
+        query = """
+            SELECT security_object_blob, security_type_identifier
+            FROM securities
+            WHERE security_type_identifier = ? AND tax_year = ?
+        """
+        rows = self._execute_query_fetchall(query, (security_type, tax_year))
+        securities = []
+        for row in rows:
+            sec = self._deserialize_security(
+                row["security_object_blob"], row["security_type_identifier"]
+            )
+            if sec:
+                securities.append(sec)
+        return securities
+
     def find_security_by_isin(self, isin: str, tax_year: int) -> Optional[Security]:
         """
         Finds a single security by its ISIN and tax year.
