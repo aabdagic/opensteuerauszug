@@ -27,12 +27,22 @@ dividends, withholding tax and quarter-end balances.
    30-Jun, 30-Sep and 31-Dec of the tax year. The 31-Dec statement is
    usually posted in early February.
 4. Put them into one directory per tax year. Other PDFs in the same directory
-   (Account Summary, IRS Form 1042-S, duplicate downloads such as
-   `... (1).pdf`) are ignored.
+   (Account Summary, IRS Form 1042-S) are ignored, and identical duplicate
+   downloads such as `... (1).pdf` are skipped. Two *different* statements for
+   the same quarter (e.g. an original and a corrected one) stop the import:
+   keep only the correct one.
 
 The statements must cover the whole tax year without gaps. The importer checks
 that each quarter's closing share and cash balances equal the next quarter's
 opening balances, and that all transactions reconcile with those balances.
+
+**Withholding refunds across the year boundary.** If Morgan Stanley refunds
+over-withheld US tax (a `Cancel Withholding Tax` row, e.g. after a W-8BEN
+correction) in the following year, also put the **first quarterly statement of
+the following year** into the directory. Likewise, if a refund early in the tax
+year belongs to a dividend of the previous year, add the previous year's
+**31-Dec statement**. Statements outside the tax year are only used to match
+such refunds; the import stops if a refund cannot be matched.
 
 ### Supporting documents (recommended)
 
@@ -112,27 +122,43 @@ command-line version.
 | Statement row | Result |
 |---|---|
 | `Release <qty> <price>` | Vested shares deposited: security mutation at the vest price |
-| `Release <amount>` | Sell-at-vest (trading plan) net proceeds: USD cash only |
+| `Release <amount>` | Sold at vest (trading plan): matched to its entry in the award section and recorded as the shares received and sold on the vest date (at the sale price), plus the net proceeds in USD cash |
 | `Sale (<qty>) <price> <gross> <net>` | Security mutation (sale); net proceeds to USD cash |
 | `Dividend Credit` | Dividend payment on the security |
-| `Withholding Tax` | US withholding tax on the dividend |
-| `Cancel Withholding Tax` | Refund, netted into the preceding withholding (matches the 1042-S) |
+| `Withholding Tax` | US withholding tax on the dividend of the same date |
+| `Cancel Withholding Tax` | Refund, netted into the withholding it brings down to the 15% treaty rate (matches the 1042-S) |
 | `Proceeds Disbursement` | Cash wired out of the account |
 
-Any other row type stops the import with an error so that nothing tax-relevant
-is silently dropped. Please report such rows.
+The "STOCK OPTION AND AWARD ACTIVITY" entries (grant, sale price, shares,
+gross proceeds, payroll taxes, net amount) are used to verify and record the
+sold-at-vest releases; every single-amount `Release` row must match an award
+entry, and every award entry must match a release.
+
+Any other row type, any dated row the parser cannot read, and any dated row
+outside these sections stops the import with an error, so that nothing
+tax-relevant is silently dropped. Please report such rows.
 
 ## Importer Specifics & Known Quirks
 
 * **Vest income is not part of the Steuerauszug.** Income from vesting is
-  reported on your salary certificate (Lohnausweis). The "STOCK OPTION AND
-  AWARD ACTIVITY" section of the statement is therefore ignored.
+  reported on your salary certificate (Lohnausweis); payroll taxes from the
+  award section are only used for verification.
+* **Sold-at-vest shares** are recorded as received and sold on the vest date.
+  The statement does not show the exact trade date of the sale (it happens
+  within a few days); if an ex-dividend date fell in between, the dividend
+  check against the Kursliste would show a mismatch.
 * **Unvested GSUs are not reported.** They are not in the quarterly
   statements. Check how your canton wants them declared.
+* **One account and one plan security** per import. Settings are only taken
+  from the account whose `account_number` matches the statement; statements
+  naming different securities are rejected.
 * **Fees** are not propagated to the Steuerauszug.
 * The dividend withholding rate depends on your W-8BEN (15% with a valid
   treaty claim for Swiss residents). The payment reconciliation in the
   generated PDF flags mismatches.
+* **`--no-strict-consistency`** turns share and cash reconciliation failures
+  into warnings. Only use it to investigate a problem, never for the final
+  statement.
 
 ## Tests and sample data
 

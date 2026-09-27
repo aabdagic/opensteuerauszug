@@ -10,7 +10,18 @@ from opensteuerauszug.importers.morganstanley.statement_parser import (
     parse_statement_pages,
 )
 
-from .statement_text import Q1_2025, Q3_2025, statement_pages
+from .statement_text import Q1_2025, Q3_2025, award_entry, statement_pages
+
+
+def _q1_with_rows(rows):
+    return statement_pages(
+        period="January 1 — March 31, 2025",
+        opening="1/1/25",
+        closing="3/31/25",
+        shares=("0.000", "0.000"),
+        cash=("$0.00", "$0.00"),
+        rows=rows,
+    )
 
 
 @pytest.mark.parametrize(
@@ -77,6 +88,40 @@ def test_award_activity_section_is_not_read_as_transactions():
         ActivityKind.DISBURSEMENT,
         ActivityKind.RELEASE,
     ]
+
+
+def test_award_entries_are_parsed_with_price_shares_and_amounts():
+    st = parse_statement_pages(Q3_2025, source="q3")
+    (award,) = st.awards
+    assert (award.activity_date, award.settlement_date) == (date(2025, 8, 25), date(2025, 8, 27))
+    assert (award.activity, award.grant_id, award.award_type) == ("Release", "C1000001", "RST")
+    assert (award.price, award.shares, award.net_shares) == (
+        Decimal("200.0000"),
+        Decimal("10.000"),
+        Decimal("10.000"),
+    )
+    assert (award.gross, award.net) == (Decimal("2000.00"), Decimal("1500.00"))
+
+
+def test_transaction_row_split_by_text_extraction_is_rejected():
+    pages = _q1_with_rows(["8/1/25", "Sale (40.500) 190.0000 $7,695.00 $7,695.00"])
+    with pytest.raises(ValueError, match="without activity or amounts"):
+        parse_statement_pages(pages, source="q1")
+
+
+def test_dated_row_outside_known_sections_is_rejected():
+    pages = _q1_with_rows([])
+    pages[2] += "INTEREST AND OTHER INCOME\n3/31/25 Interest Credit $1.23\n"
+    with pytest.raises(ValueError, match="outside the known statement sections"):
+        parse_statement_pages(pages, source="q1")
+
+
+def test_truncated_award_entry_is_rejected():
+    pages = _q1_with_rows([])
+    entry = award_entry("2/25/25", "2/27/25", "C1", "$1.0000", "1.000", "$1.00 $1.00")
+    pages[2] += "STOCK OPTION AND AWARD ACTIVITY\n" + "\n".join(entry.splitlines()[:5]) + "\n"
+    with pytest.raises(ValueError, match="Cannot parse"):
+        parse_statement_pages(pages, source="q1")
 
 
 def test_nonzero_unsettled_cash_is_rejected():

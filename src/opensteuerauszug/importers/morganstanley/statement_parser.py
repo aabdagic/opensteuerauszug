@@ -6,16 +6,19 @@ USD-denominated amounts together with dividends, withholding tax and the
 quarter-end share and cash balances.  (The Activity Report XLSX converts
 every amount with a single display rate, so it is unsuitable for tax use.)
 
-Only two parts of the statement are used:
+Three parts of the statement are used:
 
 * the first-page "Share Purchase and Holdings Summary" (opening/closing
-  share count, share price and cash value), and
+  share count, share price and cash value),
 * the "SHARE PURCHASE AND HOLDINGS" transaction list, which may continue
-  over several pages.
+  over several pages, and
+* the "STOCK OPTION AND AWARD ACTIVITY" entries, which give the shares,
+  sale price, payroll taxes and net amount of each release.  The importer
+  uses them to record sold-at-vest releases as shares received and sold.
 
-The "STOCK OPTION AND AWARD ACTIVITY" section repeats the vesting events
-with payroll-tax detail and is deliberately ignored to avoid double
-counting; vest income is reported on the Swiss salary certificate.
+Any dated row that cannot be parsed, or that appears outside these known
+sections, stops the parse: silently skipping it could drop a tax-relevant
+transaction.
 
 The parser works on the text of each page so it can be unit tested
 without real PDFs.  See ``docs/importer_morganstanley.md`` for the line
@@ -52,10 +55,13 @@ _ACTIVITY_KINDS = {
     "proceeds disbursement": ActivityKind.DISBURSEMENT,
 }
 
-_SECTION_START = "SHARE PURCHASE AND HOLDINGS"
-_SECTION_END_PREFIXES = ("STOCK OPTION AND AWARD ACTIVITY", "Sell Transactions are provided")
+_SHARE_SECTION = "SHARE PURCHASE AND HOLDINGS"
+_AWARD_SECTION = "STOCK OPTION AND AWARD ACTIVITY"
+_SHARE_SECTION_END = "Sell Transactions are provided"
 
 _DATE_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{2})$")
+_LEADING_DATE_RE = re.compile(r"^\d{1,2}/\d{1,2}/\d{2}(\s|$)")
+_AWARD_ACTIVITY_RE = re.compile(r"^([A-Za-z][A-Za-z ]*?)\s+(\S+)$")
 _NUMBER_RE = re.compile(r"^\$?\(?\$?\d[\d,]*(?:\.\d+)?\)?$")
 _AS_OF_RE = re.compile(r"\(as of (\d{1,2}/\d{1,2}/\d{2})\)")
 _ACCOUNT_RE = re.compile(r"Account Number:\s*(\S+)")
@@ -85,6 +91,34 @@ class StatementLine:
     text: str
 
 
+@dataclass(frozen=True)
+class AwardEntry:
+    """One entry of the STOCK OPTION AND AWARD ACTIVITY section.
+
+    ``amounts`` holds the printed money columns left to right: the first is
+    the gross proceeds and the last the total net amount; anything in between
+    are fees, option cost and taxes (only non-empty columns are printed).
+    """
+
+    activity_date: date
+    settlement_date: date
+    activity: str
+    grant_id: str
+    award_type: str
+    price: Decimal
+    shares: Decimal
+    net_shares: Decimal
+    amounts: Tuple[Decimal, ...]
+
+    @property
+    def gross(self) -> Decimal:
+        return self.amounts[0]
+
+    @property
+    def net(self) -> Decimal:
+        return self.amounts[-1]
+
+
 @dataclass
 class QuarterlyStatement:
     source: str
@@ -100,6 +134,22 @@ class QuarterlyStatement:
     opening_share_price: Optional[Decimal]
     closing_share_price: Optional[Decimal]
     lines: List[StatementLine] = field(default_factory=list)
+    awards: List[AwardEntry] = field(default_factory=list)
+
+    def content_key(self) -> tuple:
+        """Everything that matters for the import; used to compare duplicate downloads."""
+        return (
+            self.account_number,
+            self.issuer_description,
+            self.opening_date,
+            self.closing_date,
+            self.opening_shares,
+            self.closing_shares,
+            self.opening_cash,
+            self.closing_cash,
+            tuple((ln.trade_date, ln.activity, ln.numbers) for ln in self.lines),
+            tuple(self.awards),
+        )
 
 
 def parse_us_short_date(text: str) -> date:
@@ -157,24 +207,86 @@ def parse_activity_line(line: str) -> Optional[StatementLine]:
     )
 
 
-def _extract_activity_lines(pages: Sequence[str]) -> List[StatementLine]:
+def _parse_award_entry(lines: List[str], idx: int, source: str) -> AwardEntry:
+    """Parse the seven extracted lines of one award entry starting at *idx*.
+
+    Layout (one value per extracted line)::
+
+        10/25/25                       activity date
+        10/29/25                       settlement date
+        Release C1000001               activity, grant ID
+        RST $250.0000                  award type, grant/sale price
+        12.000                         shares exercised / sold
+        12.000                         net shares
+        $3,000.00 $1,000.00 $2,000.00  gross, [fees, cost,] taxes, net
+    """
+    chunk = lines[idx : idx + 7]
+    context = f"{source}: award entry {' | '.join(chunk)!r}"
+    if len(chunk) < 7 or not (_DATE_RE.match(chunk[0]) and _DATE_RE.match(chunk[1])):
+        raise ValueError(f"Cannot parse {context}")
+    activity = _AWARD_ACTIVITY_RE.match(chunk[2])
+    award_type = _AWARD_ACTIVITY_RE.match(chunk[3])
+    amounts = chunk[6].split()
+    if (
+        activity is None
+        or award_type is None
+        or not _NUMBER_RE.match(award_type.group(2))
+        or not _NUMBER_RE.match(chunk[4])
+        or not _NUMBER_RE.match(chunk[5])
+        or len(amounts) < 2
+        or not all(_NUMBER_RE.match(a) for a in amounts)
+    ):
+        raise ValueError(f"Cannot parse {context}")
+    return AwardEntry(
+        activity_date=parse_us_short_date(chunk[0]),
+        settlement_date=parse_us_short_date(chunk[1]),
+        activity=activity.group(1),
+        grant_id=activity.group(2),
+        award_type=award_type.group(1),
+        price=parse_amount(award_type.group(2)),
+        shares=parse_amount(chunk[4]),
+        net_shares=parse_amount(chunk[5]),
+        amounts=tuple(parse_amount(a) for a in amounts),
+    )
+
+
+def _extract_sections(
+    pages: Sequence[str], source: str
+) -> Tuple[List[StatementLine], List[AwardEntry]]:
+    """Read the transaction list and award entries; fail on any unplaceable dated row."""
     rows: List[StatementLine] = []
-    in_section = False
+    awards: List[AwardEntry] = []
     for page in pages:
-        for raw in page.splitlines():
-            line = raw.strip()
-            if line.startswith(_SECTION_START):
-                in_section = True
-                continue
-            if line.startswith(_SECTION_END_PREFIXES):
-                in_section = False
-                continue
-            if not in_section:
-                continue
-            row = parse_activity_line(line)
-            if row is not None:
-                rows.append(row)
-    return rows
+        lines = [ln.strip() for ln in page.splitlines()]
+        section = None
+        idx = 0
+        while idx < len(lines):
+            line = lines[idx]
+            if line.startswith(_SHARE_SECTION):
+                section = "share"
+            elif line.startswith(_AWARD_SECTION):
+                section = "award"
+            elif line.startswith(_SHARE_SECTION_END):
+                section = None
+            elif _LEADING_DATE_RE.match(line):
+                if section == "share":
+                    row = parse_activity_line(line)
+                    if row is None:
+                        raise ValueError(
+                            f"{source}: transaction row without activity or amounts: {line!r}"
+                        )
+                    rows.append(row)
+                elif section == "award":
+                    awards.append(_parse_award_entry(lines, idx, source))
+                    idx += 7
+                    continue
+                else:
+                    raise ValueError(
+                        f"{source}: dated row outside the known statement sections: {line!r}. "
+                        "It may be tax-relevant; please report it so support can be added."
+                    )
+            idx += 1
+    return rows, awards
 
 
 def _holder_name(first_page: str) -> Optional[str]:
@@ -218,6 +330,7 @@ def parse_statement_pages(pages: Sequence[str], source: str) -> QuarterlyStateme
 
     account = _require(_ACCOUNT_RE, first, "'Account Number'", source).group(1)
     issuer = _require(_ISSUER_RE, first, "'Issuer Description'", source).group(1).strip()
+    lines, awards = _extract_sections(pages, source)
 
     return QuarterlyStatement(
         source=source,
@@ -232,7 +345,8 @@ def parse_statement_pages(pages: Sequence[str], source: str) -> QuarterlyStateme
         closing_cash=parse_amount(cash.group(2)),
         opening_share_price=parse_amount(price.group(1)) if price else None,
         closing_share_price=parse_amount(price.group(2)) if price else None,
-        lines=_extract_activity_lines(pages),
+        lines=lines,
+        awards=awards,
     )
 
 

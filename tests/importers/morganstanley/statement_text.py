@@ -42,16 +42,24 @@ Gross
  Amount Total Taxes and Fees Total Net Amount
 """
 
-_AWARD_SECTION = """STOCK OPTION AND AWARD ACTIVITY
+_AWARD_HEADER = """STOCK OPTION AND AWARD ACTIVITY
 Activity / Settlement
-10/25/25
-10/29/25
-Release C1000000
-RST $250.0000
-12.000
-12.000
-$3,000.00 $1,000.00 $2,000.00
+Date Activity Type
+Grant ID  /
+Type
+Grant Price /
+Sale Price
+Net Shares  Gross Proceeds Total Fees Option Cost
 """
+
+_AWARD_FOOTER = """Total Fees: Please access your online account to see further details.
+Total Taxes: Please note the values in this column are the sum of payroll taxes.
+"""
+
+
+def award_entry(vest: str, settle: str, grant: str, price: str, shares: str, amounts: str) -> str:
+    """One award entry as pypdf extracts it: seven lines."""
+    return f"{vest}\n{settle}\nRelease {grant}\nRST {price}\n{shares}\n{shares}\n{amounts}\n"
 
 
 def statement_pages(
@@ -63,7 +71,7 @@ def statement_pages(
     cash: Sequence[str],
     rows: Sequence[str],
     issuer: str = "ALPHABET INC CL C",
-    with_award_section: bool = False,
+    awards: Sequence[str] = (),
 ) -> List[str]:
     first = _SUMMARY.format(
         period=period,
@@ -78,8 +86,8 @@ def statement_pages(
     legal = "STATEMENT For the Period {0} Page 2 of 4\nQuestions?\n".format(period)
     activity = _ACTIVITY_HEADER.format(period=period) + "\n".join(rows) + "\n"
     activity += "Sell Transactions are provided as of trade date.\n"
-    if with_award_section:
-        activity += _AWARD_SECTION
+    if awards:
+        activity += _AWARD_HEADER + "".join(awards) + _AWARD_FOOTER
     return [first, legal, activity]
 
 
@@ -127,7 +135,12 @@ Q3_2025 = statement_pages(
         "8/4/25 Proceeds Disbursement (7,807.42)",
         "8/25/25 Release 1,500.00",
     ],
-    with_award_section=True,
+    # Sold at vest: 10 shares at 200.00, 500.00 payroll taxes, 1,500.00 net.
+    awards=[
+        award_entry(
+            "8/25/25", "8/27/25", "C1000001", "$200.0000", "10.000", "$2,000.00 $500.00 $1,500.00"
+        )
+    ],
 )
 Q4_2025 = statement_pages(
     period="October 1 — December 31, 2025",
@@ -140,5 +153,15 @@ Q4_2025 = statement_pages(
         "10/25/25 Release 2,000.00",
         "12/30/25 Proceeds Disbursement (2,000.00)",
     ],
-    with_award_section=True,
+    # Sold at vest: 12 shares at 250.00, 1,000.00 payroll taxes, 2,000.00 net.
+    awards=[
+        award_entry(
+            "10/25/25",
+            "10/29/25",
+            "C1000001",
+            "$250.0000",
+            "12.000",
+            "$3,000.00 $1,000.00 $2,000.00",
+        )
+    ],
 )
