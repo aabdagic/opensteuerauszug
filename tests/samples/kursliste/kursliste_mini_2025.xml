@@ -394,6 +394,13 @@
     <payment id="7183492" paymentDate="2025-09-23" currency="USD" paymentValue="0.4781" exchangeRate="0.79295" paymentValueCHF="0.3791" sign="(Q)" paymentIdSIX="589098344" exDate="2025-09-19"/>
     <payment id="7354777" paymentDate="2025-12-23" currency="USD" paymentValue="1.115" exchangeRate="0.78985" paymentValueCHF="0.88084" sign="(Q)" paymentIdSIX="601887440" exDate="2025-12-19"/>
   </fund>
+  <share id="407695" valorNumber="29798545" isin="US02079K1079" securityGroup="SHARE" securityType="SHARE.NOMINAL" securityName="C" securityAppendix="Namenaktien" institutionId="47126" institutionName="Alphabet Inc." country="US" currency="USD" nominalValue="0.001">
+    <yearend id="20196860" quotationType="PIECE" taxValueCHF="248.60805"/>
+    <payment id="6895140" paymentIdSIX="590087600" paymentDate="2025-03-17" currency="USD" paymentValue="0.2" exchangeRate="0.88125" paymentValueCHF="0.17625" exDate="2025-03-10"/>
+    <payment id="7034225" paymentIdSIX="602302916" paymentDate="2025-06-16" currency="USD" paymentValue="0.21" exchangeRate="0.81075" paymentValueCHF="0.17025" exDate="2025-06-09"/>
+    <payment id="7174131" paymentIdSIX="616727278" paymentDate="2025-09-15" currency="USD" paymentValue="0.21" exchangeRate="0.79475" paymentValueCHF="0.16689" exDate="2025-09-08"/>
+    <payment id="7338697" paymentIdSIX="632673585" paymentDate="2025-12-15" currency="USD" paymentValue="0.21" exchangeRate="0.79515" paymentValueCHF="0.16698" exDate="2025-12-08"/>
+  </share>
   <exchangeRateMonthly currency="USD" year="2025" month="01" value="0.9095977273"/>
   <exchangeRateMonthly currency="USD" year="2025" month="02" value="0.9032325"/>
   <exchangeRateMonthly currency="USD" year="2025" month="03" value="0.8837857143"/>

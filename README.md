@@ -58,6 +58,7 @@ For now the focus is on brokers / banks that the author has
 
 Thanks to community contributions we also support
 
+- Morgan Stanley at Work stock plans, experimental (see the [importer guide](docs/importer_morganstanley.md))
 - DEGIRO (contributed by [@manuelgr0](https://github.com/manuelgr0), with multilingual support by [@dalpozz](https://github.com/dalpozz) and [@VincentBlondeau](https://github.com/VincentBlondeau))
 
 Additionally we can recalculate and verify any existing steuerauszug (this is mostly to increase confidence in the software itself)

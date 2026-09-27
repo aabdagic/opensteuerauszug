@@ -110,6 +110,19 @@ class DegiroAccountSettings(AccountSettingsBase):
     pass
 
 
+class MorganStanleyAccountSettings(AccountSettingsBase):
+    '''Specific configuration settings for a Morgan Stanley at Work stock plan account.'''
+
+    symbol: Optional[str] = Field(
+        default=None,
+        description="Ticker of the plan security. Only needed if the issuer is not known to the importer.",
+    )
+    isin: Optional[str] = Field(
+        default=None,
+        description="ISIN of the plan security. Only needed if the issuer is not known to the importer.",
+    )
+
+
 class CalculateSettings(BaseModel):
     """Settings for the calculation process."""
 
@@ -127,7 +140,11 @@ class CalculateSettings(BaseModel):
 
 # A type union for all possible specific account settings models
 SpecificAccountSettingsUnion = Union[
-    SchwabAccountSettings, IbkrAccountSettings, FidelityAccountSettings, DegiroAccountSettings
+    SchwabAccountSettings,
+    IbkrAccountSettings,
+    FidelityAccountSettings,
+    DegiroAccountSettings,
+    MorganStanleyAccountSettings,
 ]
 
 
@@ -139,7 +156,7 @@ class ConcreteAccountSettings(BaseModel):
     or other specific types in the future.
     '''
 
-    kind: Literal["schwab", "ibkr", "fidelity", "degiro"]
+    kind: Literal["schwab", "ibkr", "fidelity", "degiro", "morganstanley"]
     settings: SpecificAccountSettingsUnion
 
     # Delegate attribute access to the underlying specific settings model
