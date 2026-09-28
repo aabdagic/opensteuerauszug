@@ -578,7 +578,20 @@ class CleanupCalculator:
                             else:
                                 continue
 
-                            if (
+                            is_token_with_isin_row = (
+                                security.securityCategory == "CURRNOTE"
+                                and lookup_key in self.identifier_map
+                                and bool(self.identifier_map[lookup_key].get('isin'))
+                            )
+                            if is_token_with_isin_row:
+                                # Crypto tokens have no ISIN: a row with an ISIN belongs to
+                                # a security sharing the ticker (e.g. a Bitcoin ETF "BTC").
+                                logger.warning(
+                                    f"  Security {depot_id}/{lookup_key}: ignoring the identifiers "
+                                    f"file entry for '{lookup_key}' (it has an ISIN, crypto tokens "
+                                    "have none); the token is looked up by ticker instead."
+                                )
+                            elif (
                                 not security.isin
                                 or not security.valorNumber
                                 or security.valorNumber == 0

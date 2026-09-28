@@ -75,6 +75,31 @@ def test_year_end_and_derived_opening_balances():
     assert balances[date(2025, 1, 1)] == Decimal("0.010")
 
 
+def test_year_end_market_price_is_kept_on_the_closing_balance():
+    btc = _securities(_import([_parse()]))["BTC"]
+    [closing] = [s for s in btc.stock if not s.mutation and s.referenceDate == date(2026, 1, 1)]
+    assert (closing.unitPrice, closing.balance, closing.balanceCurrency) == (
+        Decimal("90000.00"),
+        Decimal("0.032") * Decimal("90000.00"),
+        "USD",
+    )
+
+
+def test_conversion_with_one_side_missing_is_rejected():
+    rows = [r for r in YEAR_2025 if not (r[1] == "Convert" and r[2] == "BTC")]
+    holdings = dict(HOLDINGS_2025, BTC="0.029")
+    with pytest.raises(ValueError, match="does not list both sides"):
+        _import([_parse(rows=rows, holdings=holdings)])
+
+
+def test_conversion_quantities_must_match_the_note():
+    rows = [
+        r[:3] + ("0.004",) + r[4:] if r[1] == "Convert" and r[2] == "BTC" else r for r in YEAR_2025
+    ]
+    with pytest.raises(ValueError, match="does not list both sides"):
+        _import([_parse(rows=rows, holdings=dict(HOLDINGS_2025, BTC="0.033"))])
+
+
 def test_every_transaction_becomes_a_mutation():
     btc = _securities(_import([_parse()]))["BTC"]
     mutations = [(s.referenceDate, s.quantity, s.name) for s in btc.stock if s.mutation]

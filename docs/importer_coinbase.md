@@ -97,6 +97,13 @@ tax-relevant is silently dropped. Please report such types.
   the year. (Coinbase's transaction quantities already include network fees.)
 * The statement must cover exactly the tax year and be unfiltered; a CSV export
   in the directory must match it.
+* Every conversion must list both sides with the quantities of its note
+  ("Converted 200 USDC to 0.003 BTC").
+* Tokens are matched to the Kursliste by ticker. If the Kursliste value differs
+  from Coinbase's year-end market value by more than a factor of 1.5, a
+  critical warning asks you to check the match. Entries in
+  `security_identifiers.csv` that give a crypto ticker an ISIN (e.g. a Bitcoin
+  ETF trading as "BTC") are ignored for Coinbase coins.
 * **Fiat balances** cannot be reconciled from the export: Coinbase lists fiat
   deposits, but purchases paid from the fiat wallet only appear with their USD
   value. The year-end balance is therefore taken from the Portfolio Summary (an
@@ -110,9 +117,13 @@ tax-relevant is silently dropped. Please report such types.
   UTC on 31 December is 1 January in Swiss local time.
 * Reward income is converted with the Kursliste exchange rate of the payment
   date (the monthly average when no daily rate is published).
-* Coins that are not in the Kursliste are reported without a tax value (a
-  warning is shown). Request their inclusion from the ESTV as described in the
+* Coins that are not in the Kursliste are valued with Coinbase's year-end
+  market price from the Portfolio Summary, converted to CHF, and marked as not
+  from the Kursliste; their reward income is kept. A critical warning is shown.
+  You can request their inclusion from the ESTV as described in the
   [User Guide](user_guide.md).
+* Coins sent to your own external wallets leave the Coinbase statement; declare
+  those holdings separately.
 * All prices must be in one currency (the account's native currency, e.g. USD).
 
 ## Tests and sample data

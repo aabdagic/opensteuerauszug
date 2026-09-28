@@ -31,7 +31,8 @@ Key design choices
 
 import logging
 import os
-from collections import defaultdict
+import re
+from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -57,6 +58,7 @@ from .statement_parser import (
     Transaction,
     is_statement_html,
     matching_keys,
+    parse_quantity,
     parse_statement_html,
     parse_transactions_csv,
 )
@@ -82,6 +84,45 @@ INCOME_KINDS = {"reward income"}
 # Fiat plausibility: warn if the balance is further off than this from the estimate.
 FIAT_TOLERANCE_ABSOLUTE = Decimal("50")
 FIAT_TOLERANCE_RELATIVE = Decimal("0.02")
+
+
+CONVERT_MAX_SPREAD = timedelta(minutes=1)
+_CONVERTED_RE = re.compile(r"^Converted ([\d,.]+) (\S+) to ([\d,.]+) (\S+)$")
+
+
+def _check_conversions(source: str, transactions: Sequence[Transaction]) -> None:
+    """Every conversion must appear with both sides, as its note describes.
+
+    Coinbase lists a conversion as two rows (the asset given up and the asset
+    received), both with the note "Converted <q> <A> to <q> <B>" and the same
+    quantities.  A missing side would silently change the derived opening
+    balance of that asset.
+    """
+    # The two rows can be a second apart, so they are grouped by their note
+    # (which contains both quantities) rather than by timestamp.
+    groups: Dict[str, List[Transaction]] = defaultdict(list)
+    for t in transactions:
+        if t.kind.lower() == "convert":
+            groups[t.notes.strip()].append(t)
+    for notes, rows in groups.items():
+        timestamp = rows[0].timestamp
+        match = _CONVERTED_RE.match(notes)
+        if match is None:
+            raise ValueError(
+                f"{source}: cannot read the conversion note {notes!r} ({timestamp:%Y-%m-%d})."
+            )
+        given, received = match.group(2), match.group(4)
+        given_qty = -parse_quantity(match.group(1), source)
+        received_qty = parse_quantity(match.group(3), source)
+        sides = Counter((t.asset, t.quantity) for t in rows)
+        pairs = len(rows) // 2
+        expected = Counter({(given, given_qty): pairs, (received, received_qty): pairs})
+        spread = max(t.timestamp for t in rows) - min(t.timestamp for t in rows)
+        if len(rows) % 2 or sides != expected or (pairs == 1 and spread > CONVERT_MAX_SPREAD):
+            raise ValueError(
+                f"{source}: the conversion of {given} to {received} on {timestamp:%Y-%m-%d} "
+                "does not list both sides. The statement is incomplete or in an unknown format."
+            )
 
 
 def _compact_id(account_id: str) -> str:
@@ -177,6 +218,8 @@ class CoinbaseImporter:
                     f"unexpected quantity {t.quantity}."
                 )
             (fiat if is_fiat else crypto)[t.asset].append(t)
+
+        _check_conversions(statement.source, transactions)
 
         currencies = {t.price_currency for t in transactions}
         if len(currencies) > 1:
@@ -316,11 +359,30 @@ class CoinbaseImporter:
                     f"{t.kind} on {t.timestamp:%Y-%m-%d}."
                 )
 
+        # Coinbase's year-end market price: the tax value of coins the Kursliste
+        # does not list, and a plausibility check for those it does.
+        unit_price = balance = None
+        if closing and asset in statement.market_prices:
+            unit_price, market_currency = statement.market_prices[asset]
+            if market_currency != price_currency:
+                raise NotImplementedError(
+                    f"{statement.source}: the year-end price of {asset} is in {market_currency}, "
+                    f"the transactions in {price_currency}."
+                )
+            balance = closing * unit_price
+        elif closing:
+            logger.warning(
+                "%s: no year-end market price for %s in the Portfolio Summary.",
+                statement.source,
+                asset,
+            )
         stocks: List[SecurityStock] = [
             SecurityStock(
                 referenceDate=self.period_to + timedelta(days=1),
                 mutation=False,
                 quantity=closing,
+                unitPrice=unit_price,
+                balance=balance,
                 balanceCurrency=price_currency,
                 quotationType="PIECE",
             )

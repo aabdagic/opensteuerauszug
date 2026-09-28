@@ -25,12 +25,13 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 _TIMESTAMP_FMT = "%Y-%m-%d %H:%M:%S UTC"
 _AS_OF_RE = re.compile(r"as of (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)")
 _FROM_RE = re.compile(r"From (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)")
 _LEADING_NUMBER_RE = re.compile(r"^-?[\d,]*\.?\d+")
+_MARKET_PRICE_RE = re.compile(r"^([\d,]*\.?\d+)\s*([A-Z]{3})/([A-Za-z0-9]+?)(?=as of|\s|$)")
 _UUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\b")
 
 
@@ -61,6 +62,8 @@ class Statement:
     holdings_as_of: Optional[datetime]
     account_id: Optional[str] = None
     holdings: Dict[str, Decimal] = field(default_factory=dict)
+    # Year-end market price per asset from the Portfolio Summary: (price, currency)
+    market_prices: Dict[str, Tuple[Decimal, str]] = field(default_factory=dict)
     transactions: List[Transaction] = field(default_factory=list)
 
 
@@ -120,6 +123,14 @@ def _tables(doc) -> List[List[List[str]]]:
     return tables
 
 
+def _market_price(cell: str, asset: str) -> Optional[Tuple[Decimal, str]]:
+    """Parse a Portfolio Summary price such as "90000.00 USD/BTCas of ..."."""
+    match = _MARKET_PRICE_RE.match(cell.strip())
+    if match is None or match.group(3) != asset:
+        return None
+    return parse_quantity(match.group(1), cell), match.group(2)
+
+
 def is_statement_html(text: str) -> bool:
     return "Transaction History Report" in text and "Portfolio Summary" in text
 
@@ -173,6 +184,9 @@ def parse_statement_html(content: bytes, source: str) -> Statement:
         if asset in statement.holdings:
             raise ValueError(f"{source}: asset {asset} listed twice in the Portfolio Summary")
         statement.holdings[asset] = parse_quantity(number.group(0), source)
+        market = _market_price(row[2] if len(row) > 2 else "", asset)
+        if market is not None:
+            statement.market_prices[asset] = market
 
     for table in tables:
         if "Transaction Type" not in table[0]:

@@ -36,6 +36,7 @@ def test_statement_header_and_holdings_are_parsed():
     assert st.holdings_as_of == datetime(2025, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
     assert st.filter == "Type: all"
     assert st.account_id == ACCOUNT_ID
+    assert st.market_prices["BTC"] == (Decimal("90000.00"), "USD")
     assert st.holdings == {
         "BTC": Decimal("0.032"),
         "USDC": Decimal("303.1"),
@@ -72,7 +73,8 @@ def test_non_statement_html_is_rejected():
 
 def test_holding_without_as_of_timestamp_is_rejected():
     html = statement_html().replace(
-        "<span>as of 2025-12-31 23:59:59 UTC</span></td><td>1.00 USD/BTC", "</td><td>1.00 USD/BTC"
+        "<span>as of 2025-12-31 23:59:59 UTC</span></td><td>90000.00 USD/BTC",
+        "</td><td>90000.00 USD/BTC",
     )
     with pytest.raises(ValueError, match="cannot read holding"):
         parse_statement_html(html.encode(), "statement.htm")

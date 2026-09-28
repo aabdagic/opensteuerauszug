@@ -11,7 +11,14 @@ import lxml.etree as ET
 from typer.testing import CliRunner
 
 from opensteuerauszug.steuerauszug import app
-from tests.importers.coinbase.statement_data import ACCOUNT_ID, statement_html, transactions_csv
+from tests.importers.coinbase.statement_data import (
+    ACCOUNT_ID,
+    HOLDINGS_2025,
+    PRICES_2025,
+    YEAR_2025,
+    statement_html,
+    transactions_csv,
+)
 
 runner = CliRunner()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -45,13 +52,17 @@ def _ech(tag: str) -> str:
     return f"{{http://www.ech.ch/xmlns/eCH-0196/2}}{tag}"
 
 
-def _run(tmp_path: Path):
+def _run(tmp_path: Path, rows=YEAR_2025, identifiers="", **statement_kwargs):
     statements = tmp_path / "coinbase_2025"
     statements.mkdir()
-    (statements / "statement_2025.htm").write_text(statement_html(), encoding="utf-8")
-    (statements / "transactions_2025.csv").write_text(transactions_csv(), encoding="utf-8")
+    (statements / "statement_2025.htm").write_text(
+        statement_html(rows=rows, **statement_kwargs), encoding="utf-8"
+    )
+    (statements / "transactions_2025.csv").write_text(transactions_csv(rows), encoding="utf-8")
     config = tmp_path / "config.toml"
     config.write_text(CONFIG_TOML, encoding="utf-8")
+    identifiers_csv = tmp_path / "security_identifiers.csv"
+    identifiers_csv.write_text("symbol,isin,valor\n" + identifiers, encoding="utf-8")
     output_xml = tmp_path / "coinbase.xml"
     result = runner.invoke(
         app,
@@ -66,6 +77,8 @@ def _run(tmp_path: Path):
             str(config),
             "--kursliste-dir",
             str(PROJECT_ROOT / "tests" / "samples" / "kursliste"),
+            "--identifiers-csv-path",
+            str(identifiers_csv),
             "--output",
             str(tmp_path / "coinbase.pdf"),
             "--xml-output",
@@ -118,3 +131,49 @@ def test_reward_income_is_kept_as_taxable_income_in_chf(tmp_path: Path):
         )
         assert Decimal(p.get("grossRevenueA")) == 0
     assert "matches=2, capped=0, expected-missing=0, mismatches=0" in result.stdout
+
+
+def test_token_missing_from_the_kursliste_keeps_its_value_and_income(tmp_path: Path, caplog):
+    rows = YEAR_2025 + [
+        ("2025-04-01 10:00:00 UTC", "Buy", "ZZZ", "100", "USD", "$2.00", "$0.00",
+         "$200.00", "$200.00", "Bought 100 ZZZ for 200 USD using Visa ****0000"),
+        ("2025-05-01 10:00:00 UTC", "Reward Income", "ZZZ", "5", "USD", "$2.00", "$0.00",
+         "$10.00", "$10.00", "Received 5 ZZZ from Coinbase Rewards"),
+    ]  # fmt: skip
+    result, xml_doc = _run(
+        tmp_path,
+        rows=rows,
+        holdings=dict(HOLDINGS_2025, ZZZ="105"),
+        prices=dict(PRICES_2025, ZZZ="3.00"),
+    )
+    zzz = _securities(xml_doc)["ZZZ"]
+    tax_value = zzz.find(_ech("taxValue"))
+    # Coinbase's year-end price (105 x 3.00 USD), converted to CHF, flagged as not from the Kursliste
+    assert Decimal(tax_value.get("value")) == Decimal("315.00") * Decimal(
+        tax_value.get("exchangeRate")
+    )
+    assert tax_value.get("kursliste") not in ("1", "true")
+    [payment] = zzz.findall(_ech("payment"))
+    assert Decimal(payment.get("amount")) == Decimal("10.00")
+    assert Decimal(payment.get("grossRevenueB")) > 0
+    assert "ZZZ was not found in the Kursliste" in caplog.text or "  - ZZZ" in caplog.text
+    assert "mismatches=0" in result.stdout
+
+
+def test_identifiers_file_entry_with_an_isin_does_not_hijack_a_token(tmp_path: Path):
+    # E.g. a Bitcoin ETF traded under the ticker "BTC" (a fund from the mini Kursliste here)
+    _, xml_doc = _run(tmp_path, identifiers="BTC,US9220427424,4354003\n")
+    btc = _securities(xml_doc)["BTC"]
+    assert btc.get("isin") is None
+    assert btc.get("valorNumber") == "39714275"
+
+
+def test_kursliste_token_far_from_the_broker_value_is_a_critical_warning(tmp_path: Path, caplog):
+    _run(tmp_path, prices=dict(PRICES_2025, BTC="1.00"))
+    assert "The Kursliste value of Bitcoin" in caplog.text
+    assert "differs strongly" in caplog.text
+
+
+def test_plausible_broker_values_give_no_token_warning(tmp_path: Path, caplog):
+    _run(tmp_path)
+    assert "differs strongly" not in caplog.text

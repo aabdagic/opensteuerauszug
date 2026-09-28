@@ -8,6 +8,7 @@ The default year (``YEAR_2025``) reconciles: the derived opening balance is
 0.01 BTC, and the year-end holdings equal opening plus all movements.
 """
 
+from decimal import Decimal
 from typing import Dict, List, Sequence, Tuple
 
 ACCOUNT_ID = "0e1d2c3b-4a59-4687-9a01-23456789abcd"
@@ -127,6 +128,8 @@ YEAR_2025: List[Row] = [
 ]
 
 HOLDINGS_2025: Dict[str, str] = {"BTC": "0.032", "USDC": "303.1", "USDT": "100"}
+# Year-end market prices in the Portfolio Summary (USD); other assets get 1.00.
+PRICES_2025: Dict[str, str] = {"BTC": "90000.00", "USDC": "1.00", "USDT": "1.00"}
 
 
 def statement_html(
@@ -136,11 +139,13 @@ def statement_html(
     as_of: str = "2025-12-31 23:59:59 UTC",
     filter_text: str = "Type: all",
     account_id: str = ACCOUNT_ID,
+    prices: Dict[str, str] = PRICES_2025,
 ) -> str:
     summary = "".join(
         f"<tr><td>{asset}</td><td>{qty}<span>as of {as_of}</span></td>"
-        f"<td>1.00 USD/{asset}<span>as of {as_of}</span></td>"
-        f"<td>1.00 USD<span>as of {as_of}</span></td></tr>"
+        f"<td>{prices.get(asset, '1.00')} USD/{asset}<span>as of {as_of}</span></td>"
+        f"<td>{Decimal(qty) * Decimal(prices.get(asset, '1.00')):.2f} USD"
+        f"<span>as of {as_of}</span></td></tr>"
         for asset, qty in holdings.items()
     )
     transactions = "".join(

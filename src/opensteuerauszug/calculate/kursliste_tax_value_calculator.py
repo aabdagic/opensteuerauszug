@@ -25,6 +25,11 @@ from opensteuerauszug.render.translations import get_text, DEFAULT_LANGUAGE, Lan
 
 logger = logging.getLogger(__name__)
 
+# A token's Kursliste value outside this range of the broker's year-end value
+# suggests a wrong ticker match (crypto prices move, but not by 2x in a day).
+TOKEN_VALUE_MIN_RATIO = Decimal("0.67")
+TOKEN_VALUE_MAX_RATIO = Decimal("1.5")
+
 
 def _next_business_day(d: date) -> date:
     """Return the next business day after ``d``, skipping weekends."""
@@ -113,6 +118,7 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
         self._missing_kursliste_entries = []
         self._stock_split_warnings: List[dict] = []
         self._previous_year_exdate_warnings = []
+        self._token_value_warnings: List[dict] = []
         self._all_securities: List[Security] = []
 
     def _translate(self, key: str) -> str:
@@ -122,6 +128,7 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
         self._missing_kursliste_entries = []
         self._stock_split_warnings = []
         self._previous_year_exdate_warnings = []
+        self._token_value_warnings = []
         # Collect all securities across all depots so that cross-security
         # split validation (valorNumberNew) can look up the target security.
         self._all_securities = []
@@ -149,6 +156,16 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
             result.critical_warnings.append(
                 CriticalWarning(
                     category=CriticalWarningCategory.STOCK_SPLIT_MISMATCH,
+                    message=warning_info["message"],
+                    source="KurslisteTaxValueCalculator",
+                    identifier=warning_info["identifier"],
+                )
+            )
+        for warning_info in self._token_value_warnings:
+            logger.warning(warning_info["message"])
+            result.critical_warnings.append(
+                CriticalWarning(
+                    category=CriticalWarningCategory.OTHER,
                     message=warning_info["message"],
                     source="KurslisteTaxValueCalculator",
                     identifier=warning_info["identifier"],
@@ -265,8 +282,11 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
                     self._current_kursliste_security, price_date=ref_date
                 )
                 if price is not None:
-                    self._set_field_value(sec_tax_value, "unitPrice", price, path_prefix)
                     value = price * sec_tax_value.quantity
+                    kl_type = self._current_kursliste_security.securityType
+                    if kl_type == SecurityTypeESTV.CURRNOTE_TOKEN:
+                        self._check_token_value(sec_tax_value, value, path_prefix)
+                    self._set_field_value(sec_tax_value, "unitPrice", price, path_prefix)
                     self._set_field_value(sec_tax_value, "value", value, path_prefix)
                     # The Kursliste price is in CHF, so if balance was previously set
                     # (e.g. from the broker's position value), it must be updated to the CHF value.
@@ -549,6 +569,37 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
                 valor_number_new,
             )
 
+    def _check_token_value(
+        self, sec_tax_value: SecurityTaxValue, kursliste_value: Decimal, path_prefix: str
+    ) -> None:
+        """Compare a token's Kursliste value with the broker's year-end market value.
+
+        Tokens are found by ticker, and different projects can share a ticker;
+        a large difference means the wrong token (or a wrong quantity).
+        """
+        broker = sec_tax_value.balance
+        currency = sec_tax_value.balanceCurrency
+        if not broker or not currency or not kursliste_value or currency == "CHF":
+            return
+        broker_chf, _ = self._convert_to_chf(
+            broker, currency, f"{path_prefix}.exchangeRate", sec_tax_value.referenceDate
+        )
+        if broker_chf is None or broker_chf <= 0:
+            return
+        ratio = kursliste_value / broker_chf
+        if not TOKEN_VALUE_MIN_RATIO <= ratio <= TOKEN_VALUE_MAX_RATIO:
+            name = self._current_kursliste_security.securityName
+            self._token_value_warnings.append(
+                {
+                    "identifier": name,
+                    "message": (
+                        f"The Kursliste value of {name} ({kursliste_value:.2f} CHF) differs "
+                        f"strongly from the broker's year-end value ({broker_chf:.2f} CHF). "
+                        "Check that the token was matched correctly."
+                    ),
+                }
+            )
+
     def _token_income_payments(self, security: Security, path_prefix: str) -> List[SecurityPayment]:
         """Taxable income of a crypto token, valued in CHF at the payment date.
 
@@ -595,6 +646,13 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
             raise RuntimeError("kursliste_manager is required for Kursliste payments")
 
         kl_sec = self._current_kursliste_security
+        if kl_sec is None and security.securityCategory == "CURRNOTE" and security.symbol:
+            # A token that is not in the Kursliste: its income can only come
+            # from the broker, and must not be dropped.
+            self.setKurslistePayments(
+                security, self._token_income_payments(security, path_prefix), path_prefix
+            )
+            return
         if kl_sec is None:
             super().computePayments(security, path_prefix)
             return
