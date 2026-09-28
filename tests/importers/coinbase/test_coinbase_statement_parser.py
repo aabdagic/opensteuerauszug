@@ -10,7 +10,7 @@ from opensteuerauszug.importers.coinbase.statement_parser import (
     parse_transactions_csv,
 )
 
-from .statement_data import statement_html, transactions_csv
+from .statement_data import ACCOUNT_ID, statement_html, transactions_csv
 
 
 def _statement(**kwargs):
@@ -35,6 +35,7 @@ def test_statement_header_and_holdings_are_parsed():
     assert st.period_start == datetime(2025, 1, 1, tzinfo=timezone.utc)
     assert st.holdings_as_of == datetime(2025, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
     assert st.filter == "Type: all"
+    assert st.account_id == ACCOUNT_ID
     assert st.holdings == {
         "BTC": Decimal("0.032"),
         "USDC": Decimal("303.1"),

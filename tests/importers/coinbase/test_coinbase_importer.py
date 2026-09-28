@@ -10,16 +10,51 @@ from opensteuerauszug.importers.coinbase.statement_parser import (
     parse_transactions_csv,
 )
 
-from .statement_data import HOLDINGS_2025, YEAR_2025, statement_html, transactions_csv
+from opensteuerauszug.config.models import CoinbaseAccountSettings
+
+from .statement_data import ACCOUNT_ID, HOLDINGS_2025, YEAR_2025, statement_html, transactions_csv
 
 
 def _parse(**kwargs):
     return parse_statement_html(statement_html(**kwargs).encode(), "statement.htm")
 
 
-def _import(statements, csv_exports=()):
-    importer = CoinbaseImporter(date(2025, 1, 1), date(2025, 12, 31), [])
+def _import(statements, csv_exports=(), settings=()):
+    importer = CoinbaseImporter(date(2025, 1, 1), date(2025, 12, 31), list(settings))
     return importer.import_statements(statements, csv_exports)
+
+
+def _settings(account_number):
+    return CoinbaseAccountSettings(
+        account_number=account_number,
+        full_name="Erika Mustermann",
+        canton="ZH",
+        broker_name="coinbase",
+        account_name_alias="main",
+    )
+
+
+def test_account_id_from_the_statement_is_the_client_depot_and_account_number():
+    compact = ACCOUNT_ID.replace("-", "")
+    tax_statement = _import([_parse()], settings=[_settings(ACCOUNT_ID.upper())])
+    assert tax_statement.client[0].clientNumber == ACCOUNT_ID
+    assert tax_statement.listOfSecurities.depot[0].depotNumber == compact
+    assert tax_statement.listOfBankAccounts.bankAccount[0].bankAccountNumber == compact
+    assert tax_statement.canton == "ZH"
+
+
+def test_unconfigured_account_id_warns_and_uses_no_account_settings(caplog):
+    with caplog.at_level(logging.WARNING):
+        tax_statement = _import([_parse()], settings=[_settings("COINBASE")])
+    assert f"Coinbase account {ACCOUNT_ID} is not configured" in caplog.text
+    assert tax_statement.listOfSecurities.depot[0].depotNumber == ACCOUNT_ID.replace("-", "")
+    assert tax_statement.canton is None
+
+
+def test_statements_of_two_accounts_are_rejected():
+    other = _parse(account_id="11111111-2222-4333-8444-555555555555")
+    with pytest.raises(ValueError, match="Several different statements"):
+        _import([_parse(), other])
 
 
 def _securities(tax_statement):

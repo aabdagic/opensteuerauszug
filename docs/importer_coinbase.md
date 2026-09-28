@@ -56,8 +56,16 @@ full_name = "Erika Mustermann"
 experimental_importers = true
 
 [brokers.coinbase.accounts.main]
-account_number = "COINBASE"   # Coinbase has no account number; used as identifier
+account_number = "00000000-0000-0000-0000-000000000000"
 ```
+
+`account_number` is the account ID printed under your e-mail address in the
+statement header (the "Account" column; the CSV export shows the same ID in its
+"User" line). The importer reads it from the statement and uses it as the
+client number and, without dashes (the format allows at most 32 characters), as
+the depot and wallet account number. If the configured number does
+not match the statement, a warning is shown and the account settings are not
+used.
 
 ## Running OpenSteuerAuszug
 

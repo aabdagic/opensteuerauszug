@@ -113,8 +113,9 @@ class DegiroAccountSettings(AccountSettingsBase):
 class CoinbaseAccountSettings(AccountSettingsBase):
     '''Specific configuration settings for a Coinbase account.
 
-    Coinbase has no account number; ``account_number`` is only used as the depot
-    and client identifier in the generated statement (e.g. "COINBASE").
+    ``account_number`` is the account ID (a UUID) shown under the e-mail in the
+    statement header; the importer uses the settings whose ``account_number``
+    matches the statement.
     '''
 
     pass

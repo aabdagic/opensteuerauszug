@@ -10,6 +10,8 @@ The default year (``YEAR_2025``) reconciles: the derived opening balance is
 
 from typing import Dict, List, Sequence, Tuple
 
+ACCOUNT_ID = "0e1d2c3b-4a59-4687-9a01-23456789abcd"
+
 Row = Tuple[str, str, str, str, str, str, str, str, str, str]
 # (timestamp, type, asset, quantity, price currency, price, fees, subtotal, total, notes)
 
@@ -133,6 +135,7 @@ def statement_html(
     period_start: str = "2025-01-01 00:00:00 UTC",
     as_of: str = "2025-12-31 23:59:59 UTC",
     filter_text: str = "Type: all",
+    account_id: str = ACCOUNT_ID,
 ) -> str:
     summary = "".join(
         f"<tr><td>{asset}</td><td>{qty}<span>as of {as_of}</span></td>"
@@ -146,7 +149,8 @@ def statement_html(
     return (
         "<html><body><h1>Transaction History Report for Erika Mustermann</h1>"
         "<table><tr><th>Date Range</th><th>Filter</th><th>Account</th></tr>"
-        f"<tr><td>From {period_start}</td><td>{filter_text}</td><td>erika@example.com</td></tr></table>"
+        f"<tr><td>From {period_start}</td><td>{filter_text}</td><td>erika@example.com</td></tr>"
+        f"<tr><td>To {as_of}</td><td>Asset: all</td><td>{account_id}</td></tr></table>"
         "<h2>Portfolio Summary</h2>"
         "<table><tr><th>Asset</th><th>Quantity</th><th>Market Price</th><th>Market Value</th></tr>"
         f"{summary}<tr><td></td><td>Total Market Value 1.00 USD</td></tr></table>"
@@ -166,7 +170,7 @@ def transactions_csv(rows: Sequence[Row] = YEAR_2025) -> str:
     lines = [
         "",
         "Transactions",
-        "User,Erika Mustermann,00000000-0000-0000-0000-000000000000",
+        f"User,Erika Mustermann,{ACCOUNT_ID}",
         header,
     ]
     for index, (ts, kind, asset, qty, cur, price, fees, subtotal, total, notes) in enumerate(rows):

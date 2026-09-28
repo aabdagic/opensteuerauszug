@@ -11,7 +11,8 @@ cross-check.
 HTML layout (tables identified by their header row):
 
 * ``Date Range | Filter | Account`` -- e.g. "From 2025-01-01 00:00:00 UTC",
-  "Type: all", the account e-mail;
+  "Type: all", the account e-mail; the next row has the account ID (a UUID)
+  under the e-mail;
 * ``Asset | Quantity | Market Price | Market Value`` -- one row per asset with
   a non-zero balance; the quantity cell reads "0.5as of 2025-12-31 23:59:59 UTC";
   a final row holds the total market value;
@@ -30,6 +31,7 @@ _TIMESTAMP_FMT = "%Y-%m-%d %H:%M:%S UTC"
 _AS_OF_RE = re.compile(r"as of (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)")
 _FROM_RE = re.compile(r"From (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)")
 _LEADING_NUMBER_RE = re.compile(r"^-?[\d,]*\.?\d+")
+_UUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\b")
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,7 @@ class Statement:
     filter: str
     period_start: datetime
     holdings_as_of: Optional[datetime]
+    account_id: Optional[str] = None
     holdings: Dict[str, Decimal] = field(default_factory=dict)
     transactions: List[Transaction] = field(default_factory=list)
 
@@ -136,6 +139,12 @@ def parse_statement_html(content: bytes, source: str) -> Statement:
     period = _FROM_RE.search(head.get("Date Range", ""))
     if period is None:
         raise ValueError(f"{source}: cannot read the statement's date range")
+    # The account column holds the e-mail and, in the next row, the account ID.
+    column = header[0].index("Account") if "Account" in header[0] else None
+    account_cells = [row[column] for row in header[1:] if column is not None and column < len(row)]
+    account_ids = {m.group(0).lower() for cell in account_cells for m in _UUID_RE.finditer(cell)}
+    if len(account_ids) > 1:
+        raise ValueError(f"{source}: several account IDs in the statement header")
 
     statement = Statement(
         source=source,
@@ -143,6 +152,7 @@ def parse_statement_html(content: bytes, source: str) -> Statement:
         filter=head.get("Filter", ""),
         period_start=parse_timestamp(period.group(1)),
         holdings_as_of=None,
+        account_id=account_ids.pop() if account_ids else None,
     )
 
     summary = next((t for t in tables if t[0][:2] == ["Asset", "Quantity"]), None)

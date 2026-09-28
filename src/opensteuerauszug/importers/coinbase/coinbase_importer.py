@@ -9,6 +9,9 @@ Key design choices
   and with holdings "as of" its last second.  Other statements (e.g. monthly
   ones) are ignored.  Every CSV export in the directory must contain exactly
   the statement's transactions for the period.
+* The account ID (a UUID) from the statement header is the client number and,
+  without dashes (the 32-character limit), the depot and fiat account number;
+  the account settings whose ``account_number`` matches it are used.
 * Crypto assets become securities of category CURRNOTE identified by their
   ticker; the calculation phase finds them in the Kursliste (CURRNOTE.TOKEN)
   and values them at the official year-end tax value.
@@ -31,7 +34,7 @@ import os
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from opensteuerauszug.config.models import CoinbaseAccountSettings
 from opensteuerauszug.importers.common import (
@@ -79,6 +82,10 @@ INCOME_KINDS = {"reward income"}
 # Fiat plausibility: warn if the balance is further off than this from the estimate.
 FIAT_TOLERANCE_ABSOLUTE = Decimal("50")
 FIAT_TOLERANCE_RELATIVE = Decimal("0.02")
+
+
+def _compact_id(account_id: str) -> str:
+    return account_id.strip().replace("-", "")
 
 
 class CoinbaseImporter:
@@ -144,8 +151,13 @@ class CoinbaseImporter:
                     "for the tax period. Export both for the same year and unfiltered."
                 )
 
-        settings = self.account_settings_list[0] if self.account_settings_list else None
-        depot = settings.account_number if settings else "COINBASE"
+        settings = self._settings_for(statement.account_id)
+        client_number = statement.account_id or (
+            settings.account_number if settings else "COINBASE"
+        )
+        # Depot and bank account numbers are limited to 32 characters: drop the
+        # UUID's dashes (36 -> 32 characters).
+        depot = _compact_id(client_number)[:32]
 
         crypto: Dict[str, List[Transaction]] = defaultdict(list)
         fiat: Dict[str, List[Transaction]] = defaultdict(list)
@@ -202,9 +214,7 @@ class CoinbaseImporter:
         tax_statement.institution = Institution(name="Coinbase")
         if settings:
             first, last = resolve_first_last_name(full_name=settings.full_name)
-            client = build_client(
-                client_number=settings.account_number, first_name=first, last_name=last
-            )
+            client = build_client(client_number=client_number, first_name=first, last_name=last)
             if client is not None:
                 tax_statement.client = [client]
             canton = parse_swiss_canton(settings.canton)
@@ -227,6 +237,22 @@ class CoinbaseImporter:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _settings_for(self, account_id: Optional[str]) -> Optional[CoinbaseAccountSettings]:
+        if account_id is None:
+            # Statement without an account ID: use the single configured account.
+            return self.account_settings_list[0] if self.account_settings_list else None
+        for settings in self.account_settings_list:
+            if _compact_id(settings.account_number).lower() == _compact_id(account_id):
+                return settings
+        if self.account_settings_list:
+            logger.warning(
+                "Coinbase account %s is not configured (configured: %s); using general "
+                "settings only. Set account_number to the account ID from the statement header.",
+                account_id,
+                ", ".join(s.account_number for s in self.account_settings_list),
+            )
+        return None
 
     def _select_statement(self, statements: Sequence[Statement]) -> Statement:
         matching = [
@@ -252,6 +278,7 @@ class CoinbaseImporter:
                 sorted(t.key() for t in m.transactions)
                 != sorted(t.key() for t in matching[0].transactions)
                 or m.holdings != matching[0].holdings
+                or m.account_id != matching[0].account_id
                 for m in matching[1:]
             ):
                 raise ValueError(
@@ -341,7 +368,8 @@ class CoinbaseImporter:
             payments=[],
             country="US",
             name=f"Coinbase {currency} wallet",
-            number=f"{depot}-{currency}",
+            # The account ID already uses all 32 characters; the currency is its own field.
+            number=depot,
         )
 
     @staticmethod

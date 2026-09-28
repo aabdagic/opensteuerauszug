@@ -11,19 +11,19 @@ import lxml.etree as ET
 from typer.testing import CliRunner
 
 from opensteuerauszug.steuerauszug import app
-from tests.importers.coinbase.statement_data import statement_html, transactions_csv
+from tests.importers.coinbase.statement_data import ACCOUNT_ID, statement_html, transactions_csv
 
 runner = CliRunner()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-CONFIG_TOML = """
+CONFIG_TOML = f"""
 [general]
 full_name = "Erika Mustermann"
 canton = "ZH"
 experimental_importers = true
 
 [brokers.coinbase.accounts.main]
-account_number = "COINBASE"
+account_number = "{ACCOUNT_ID}"
 """
 
 
